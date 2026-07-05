@@ -1,0 +1,189 @@
+{
+  "app_name": "Smart Eye Hub",
+  "personality": "1 iOS-Native Clean",
+  "personality_one_liner": "A highly professional, corporate, and trustworthy field-service management platform that frames dense data with calm, generous iOS-native spacing.",
+  "color": {
+    "surface": "#F9FAFB",
+    "onSurface": "#111827",
+    "surfaceSecondary": "#FFFFFF",
+    "onSurfaceSecondary": "#1F2937",
+    "surfaceTertiary": "#F3F4F6",
+    "onSurfaceTertiary": "#374151",
+    "surfaceInverse": "#111827",
+    "onSurfaceInverse": "#F9FAFB",
+    "brand": "#1B3A5F",
+    "brandPrimary": "#1B3A5F",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#C8102E",
+    "onBrandSecondary": "#FFFFFF",
+    "brandTertiary": "#E0E7FF",
+    "onBrandTertiary": "#1B3A5F",
+    "success": "#059669",
+    "onSuccess": "#FFFFFF",
+    "warning": "#D97706",
+    "onWarning": "#FFFFFF",
+    "error": "#DC2626",
+    "onError": "#FFFFFF",
+    "info": "#2563EB",
+    "onInfo": "#FFFFFF",
+    "border": "#E5E7EB",
+    "borderStrong": "#D1D5DB",
+    "divider": "#F3F4F6"
+  },
+  "typography": {
+    "displayFontFamily": "Plus Jakarta Sans",
+    "textFontFamily": "Satoshi",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Generous iOS-native padding. Use 8pt scale strictly. Empty halves of the screen = broken layout.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": "1",
+  "navigation": "bottom_tabs",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": "true",
+    "do's": [
+      "Bottom tab bar",
+      "Floating action buttons (FAB) over brandTertiary tint",
+      "Sticky headers over scrolling lists",
+      "Modal scrims"
+    ],
+    "dont's": [
+      "Every button",
+      "List rows",
+      "Form inputs",
+      "Dense data cards"
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Login",
+      "purpose": "Secure JWT login for Manager or Employee roles.",
+      "states": {
+        "loading": "Centered brand spinner",
+        "empty": "N/A",
+        "error": "Standard error toast/alert with Retry"
+      },
+      "layout": "Centered logo. Clean inputs with labels above. Primary sticky CTA 'Sign In'. Subtle background image with gradient scrim."
+    },
+    {
+      "name": "Dashboard",
+      "purpose": "Overview of revenue, expenses, pending work, and quick actions.",
+      "states": {
+        "loading": "Skeleton cards",
+        "empty": "Illustration of an empty desk + 'No data for today'",
+        "error": "Data fetch error + Retry button"
+      },
+      "layout": "Top welcome header. 2-col grid for key metrics (Revenue, Expenses). List of 'Up Next' assigned work for employees. Quick action row."
+    },
+    {
+      "name": "Documents",
+      "purpose": "List of Quotations, Invoices, Receipts, and Service Reports.",
+      "states": {
+        "loading": "List skeletons",
+        "empty": "Empty clipboard icon + 'No documents found'",
+        "error": "Fetch error + Retry"
+      },
+      "layout": "Sticky top horizontal scrolling chip row for filters (Quotations, Invoices, Receipts, Service Reports). Rows showing Doc ID, Client, Amount, Status. FAB for 'Create New'."
+    },
+    {
+      "name": "Doc Create Form",
+      "purpose": "Multi-step or long scrolling form to generate a document and PDF.",
+      "states": {
+        "loading": "Saving overlay",
+        "empty": "N/A",
+        "error": "Validation inline errors"
+      },
+      "layout": "Stack layout. Labels above inputs. Line items section with 'Add Item' row. Sticky primary CTA 'Review & Save' at the bottom (KeyboardAvoidingView)."
+    },
+    {
+      "name": "Work Allocation",
+      "purpose": "Manager assigns jobs; Employees view tasks and update status.",
+      "states": {
+        "loading": "List skeletons",
+        "empty": "Calendar icon + 'No tasks assigned today'",
+        "error": "Fetch error + Retry"
+      },
+      "layout": "List rows with priority badges, Client Name, address, and status. Employee taps to view detail and check off materials/remarks."
+    },
+    {
+      "name": "Inventory & Purchases",
+      "purpose": "Manage items and upload purchase bills.",
+      "states": {
+        "loading": "List skeletons",
+        "empty": "Box icon + 'Inventory is empty'",
+        "error": "Fetch error + Retry"
+      },
+      "layout": "Search bar at top. List of items with stock levels. FAB for adding stock. Bottom sheet for file upload (Base64)."
+    },
+    {
+      "name": "Profile",
+      "purpose": "User settings and logout.",
+      "states": {
+        "loading": "Spinner",
+        "empty": "N/A",
+        "error": "N/A"
+      },
+      "layout": "Cover banner image. Avatar fallback initials. Settings rows with tinted icon containers."
+    }
+  ],
+  "images": {
+    "smarteye_logo": {
+      "url": "https://smarteye-uae.com/Logo%20F%20(1).png",
+      "alt": "Smart Eye Technical Services Logo"
+    },
+    "hero_background": {
+      "url": "https://images.pexels.com/photos/17489151/pexels-photo-17489151.jpeg",
+      "dark": "https://images.pexels.com/photos/17489151/pexels-photo-17489151.jpeg",
+      "alt": "Abstract server room network background"
+    },
+    "cctv_image": {
+      "url": "https://images.pexels.com/photos/5966513/pexels-photo-5966513.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "dark": "https://images.pexels.com/photos/5966513/pexels-photo-5966513.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Professional CCTV Installation"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Use the exact brand tokens provided: primary Navy (#1B3A5F) and accent Red (#C8102E). This is an explicit exception granted by the prompt for the Banned Blues rule.",
+    "Implement bottom tab navigation consisting of Home, Documents, Work, Profile. Use a stack for 'Create' flows triggered by FABs.",
+    "For document creation flows (Invoice, Quotation), use a scrolling container with a fixed primary CTA pinned to the bottom root.",
+    "Forms should have labels directly above the input fields. Do not use floating labels.",
+    "File uploads (purchase bills/expenses) should support taking a photo or uploading a PDF, transforming it into Base64 for the MongoDB backend.",
+    "Ensure VAT 5% calculations and auto-sequential numbering (e.g. SE-INV-2026-001) are wired properly in document creation logic.",
+    "Role-based views: Manager sees total revenue/expenses on the Dashboard; Employee sees 'Up Next' assigned work.",
+    "Apply 'expo-glass-effect' or 'expo-blur' on elevated surfaces like sticky headers and bottom tab bars to maintain an iOS-Native Clean feeling.",
+    "Use the logo and server/cctv imagery with a gradient-to-dark scrim layer pattern when text is overlaid on them."
+  ]
+}
