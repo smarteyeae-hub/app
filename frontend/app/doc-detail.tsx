@@ -36,10 +36,11 @@ export default function DocDetail() {
         : t === "invoice" ? await api.invoicePdf(id!)
         : t === "receipt" ? await api.receiptPdf(id!)
         : await api.serviceReportPdf(id!);
+      if (!res?.data) throw new Error("No PDF data received from server");
       await shareBase64Pdf(res.filename, res.data);
       setToast({ v: true, m: "PDF ready", k: "success" });
     } catch (e: any) {
-      setToast({ v: true, m: e.message || "Failed", k: "error" });
+      setToast({ v: true, m: e?.message || "PDF failed", k: "error" });
     } finally { setDownloading(false); }
   };
 
