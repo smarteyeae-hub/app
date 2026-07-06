@@ -38,7 +38,7 @@ export default function Inventory() {
           </Card>
         )}
       />
-      {user?.role === "manager" && (
+      {(user?.role === "manager" || user?.role === "owner") && (
         <Pressable testID="inv-fab" onPress={() => router.push("/inventory-create")} style={{ position: "absolute", right: 20, bottom: 20, width: 56, height: 56, borderRadius: 28, backgroundColor: theme.red, alignItems: "center", justifyContent: "center", ...shadow.fab }}>
           <Ionicons name="add" size={30} color="#fff" />
         </Pressable>

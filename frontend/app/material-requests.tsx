@@ -37,7 +37,7 @@ export default function MaterialRequests() {
               </View>
               <StatusBadge status={item.status} />
             </View>
-            {user?.role === "manager" && item.status === "pending" && (
+            {(user?.role === "manager" || user?.role === "owner") && item.status === "pending" && (
               <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
                 <Pressable testID={`mr-approve-${item.id}`} onPress={() => update(item.id, "approved")} style={{ flex: 1, backgroundColor: theme.successBg, padding: 8, borderRadius: 8, alignItems: "center" }}><Text style={{ color: theme.success, fontWeight: "700" }}>Approve</Text></Pressable>
                 <Pressable testID={`mr-reject-${item.id}`} onPress={() => update(item.id, "rejected")} style={{ flex: 1, backgroundColor: theme.errorBg, padding: 8, borderRadius: 8, alignItems: "center" }}><Text style={{ color: theme.error, fontWeight: "700" }}>Reject</Text></Pressable>

@@ -70,7 +70,7 @@ export default function Work() {
         )}
       />
 
-      {user?.role === "manager" && (
+      {(user?.role === "manager" || user?.role === "owner") && (
         <Pressable testID="work-fab" onPress={() => router.push("/work-create")}
           style={{ position: "absolute", right: 20, bottom: 20, width: 56, height: 56, borderRadius: 28, backgroundColor: theme.red, alignItems: "center", justifyContent: "center", ...shadow.fab }}>
           <Ionicons name="add" size={30} color="#fff" />

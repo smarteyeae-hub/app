@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, ScrollView } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { View, Text, ScrollView, Pressable } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { ScreenShell, shareBase64Pdf } from "@/src/shared";
 import { Card, PrimaryButton, ScreenLoader, StatusBadge, Toast } from "@/src/ui";
 import { api } from "@/src/api";
+import { useAuth } from "@/src/auth";
 import { theme, spacing, fmtAED, fmtDate } from "@/src/theme";
 
 type T = "quotation" | "invoice" | "receipt" | "service_report";
@@ -11,23 +13,25 @@ type T = "quotation" | "invoice" | "receipt" | "service_report";
 export default function DocDetail() {
   const { type = "quotation", id } = useLocalSearchParams<{ type: T; id: string }>();
   const t = (type as T) || "quotation";
+  const router = useRouter();
+  const { user } = useAuth();
   const [doc, setDoc] = useState<any>(null);
   const [downloading, setDownloading] = useState(false);
+  const [converting, setConverting] = useState(false);
   const [toast, setToast] = useState<{ v: boolean; m: string; k?: any }>({ v: false, m: "" });
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const path =
-          t === "quotation" ? `/quotations/${id}` :
-          t === "invoice" ? `/invoices/${id}` :
-          t === "receipt" ? `/receipts/${id}` :
-          `/service-reports/${id}`;
-        const { apiFetch } = await import("@/src/api");
-        setDoc(await apiFetch(path));
-      } catch { /* */ }
-    })();
-  }, [id, t]);
+  const load = async () => {
+    try {
+      const path =
+        t === "quotation" ? `/quotations/${id}` :
+        t === "invoice" ? `/invoices/${id}` :
+        t === "receipt" ? `/receipts/${id}` :
+        `/service-reports/${id}`;
+      const { apiFetch } = await import("@/src/api");
+      setDoc(await apiFetch(path));
+    } catch { /* */ }
+  };
+  useEffect(() => { load(); }, [id, t]);
 
   const downloadPdf = async () => {
     setDownloading(true);
@@ -135,8 +139,40 @@ export default function DocDetail() {
           </>
         )}
 
-        <View style={{ marginTop: spacing.xl }}>
+        <View style={{ marginTop: spacing.xl, gap: 10 }}>
           <PrimaryButton title="Download / Share PDF" onPress={downloadPdf} loading={downloading} icon="download" testID="pdf-download-btn" />
+          {user?.role !== "employee" && t === "quotation" && doc.status !== "invoiced" && (
+            <PrimaryButton title="Convert to Invoice" variant="secondary" icon="document-text" onPress={async () => {
+              setConverting(true);
+              try {
+                const inv = await api.quotationToInvoice(id!);
+                setToast({ v: true, m: `Invoice ${inv.doc_number} created`, k: "success" });
+                setTimeout(() => router.replace({ pathname: "/doc-detail", params: { type: "invoice", id: inv.id } }), 500);
+              } catch (e: any) { setToast({ v: true, m: e.message || "Failed", k: "error" }); } finally { setConverting(false); }
+            }} loading={converting} testID="convert-to-invoice-btn" />
+          )}
+          {user?.role !== "employee" && t === "invoice" && doc.status !== "paid" && (
+            <PrimaryButton title="Convert to Receipt (Mark Paid)" variant="secondary" icon="receipt" onPress={async () => {
+              setConverting(true);
+              try {
+                const r = await api.invoiceToReceipt(id!);
+                setToast({ v: true, m: `Receipt ${r.doc_number} created`, k: "success" });
+                setTimeout(() => router.replace({ pathname: "/doc-detail", params: { type: "receipt", id: r.id } }), 500);
+              } catch (e: any) { setToast({ v: true, m: e.message || "Failed", k: "error" }); } finally { setConverting(false); }
+            }} loading={converting} testID="convert-to-receipt-btn" />
+          )}
+          {t === "receipt" && doc.source_invoice_id && (
+            <Pressable testID="link-source-invoice" onPress={() => router.replace({ pathname: "/doc-detail", params: { type: "invoice", id: doc.source_invoice_id } })} style={{ padding: 12, borderRadius: 12, borderWidth: 1, borderColor: theme.border, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: 6 }}>
+              <Ionicons name="link-outline" size={16} color={theme.navy} />
+              <Text style={{ color: theme.navy, fontWeight: "700" }}>View Source Invoice ({doc.against_invoice})</Text>
+            </Pressable>
+          )}
+          {t === "invoice" && doc.source_quotation_id && (
+            <Pressable testID="link-source-quotation" onPress={() => router.replace({ pathname: "/doc-detail", params: { type: "quotation", id: doc.source_quotation_id } })} style={{ padding: 12, borderRadius: 12, borderWidth: 1, borderColor: theme.border, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: 6 }}>
+              <Ionicons name="link-outline" size={16} color={theme.navy} />
+              <Text style={{ color: theme.navy, fontWeight: "700" }}>View Source Quotation ({doc.source_quotation_number})</Text>
+            </Pressable>
+          )}
         </View>
       </ScrollView>
     </ScreenShell>

@@ -13,10 +13,12 @@ export default function Dashboard() {
   const { user, logout } = useAuth();
   const router = useRouter();
   const [data, setData] = useState<any>(null);
+  const [unread, setUnread] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try { const d = await api.dashboard(); setData(d); } catch (e) { console.log("dash err", e); }
+    try { const u = await api.unreadCount(); setUnread(u.count); } catch { /* */ }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -26,7 +28,7 @@ export default function Dashboard() {
   if (!user) return <ScreenLoader />;
   if (!data) return <ScreenLoader />;
 
-  const isMgr = user.role === "manager";
+  const isMgr = user.role === "manager" || user.role === "owner";
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.navyDark }} edges={["top"]}>
@@ -56,6 +58,14 @@ export default function Dashboard() {
           </View>
           <Pressable testID="logout-btn" onPress={logout} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(0,0,0,0.25)", alignItems: "center", justifyContent: "center" }}>
             <Ionicons name="log-out-outline" size={20} color="#fff" />
+          </Pressable>
+          <Pressable testID="notif-bell-btn" onPress={() => router.push("/notifications")} style={{ marginLeft: 8, width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(0,0,0,0.25)", alignItems: "center", justifyContent: "center" }}>
+            <Ionicons name="notifications-outline" size={20} color="#fff" />
+            {unread > 0 ? (
+              <View style={{ position: "absolute", top: 4, right: 4, minWidth: 16, height: 16, borderRadius: 8, backgroundColor: theme.red, alignItems: "center", justifyContent: "center", paddingHorizontal: 3 }}>
+                <Text style={{ color: "#fff", fontSize: 9, fontWeight: "800" }} testID="notif-badge-count">{unread > 99 ? "99+" : unread}</Text>
+              </View>
+            ) : null}
           </Pressable>
         </View>
       </LinearGradient>

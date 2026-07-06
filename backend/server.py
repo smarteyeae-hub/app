@@ -25,6 +25,8 @@ from reportlab.platypus import (
 )
 
 ROOT_DIR = Path(__file__).parent
+ASSETS_DIR = ROOT_DIR / "assets"
+LETTERHEAD = ASSETS_DIR / "letterhead.png"
 load_dotenv(ROOT_DIR / ".env")
 
 MONGO_URL = os.environ["MONGO_URL"]
@@ -98,9 +100,21 @@ async def current_user(cred: HTTPAuthorizationCredentials = Depends(security)) -
     return user
 
 def require_manager(user: dict = Depends(current_user)) -> dict:
-    if user["role"] != "manager":
+    if user["role"] not in ("manager", "owner"):
         raise HTTPException(403, "Manager role required")
     return user
+
+async def notify(user_id: str, title: str, body: str = "", kind: str = "info", category: str = "general", entity_id: str | None = None, entity_type: str | None = None):
+    n = Notification(user_id=user_id, title=title, body=body, kind=kind, category=category, entity_id=entity_id, entity_type=entity_type).dict()
+    await db.notifications.insert_one(n.copy())
+    return n
+
+async def notify_managers(title: str, body: str = "", kind: str = "info", category: str = "general", entity_id: str | None = None, entity_type: str | None = None, exclude_user_id: str | None = None):
+    q: dict = {"role": {"$in": ["manager", "owner"]}, "is_active": {"$ne": False}}
+    if exclude_user_id:
+        q["id"] = {"$ne": exclude_user_id}
+    async for u in db.users.find(q, {"_id": 0, "id": 1}):
+        await notify(u["id"], title, body, kind, category, entity_id, entity_type)
 
 async def next_seq(kind: str) -> int:
     year = datetime.now(timezone.utc).year
@@ -127,15 +141,24 @@ class UserOut(BaseModel):
     id: str
     email: EmailStr
     name: str
-    role: Literal["manager", "employee"]
+    role: Literal["owner", "manager", "employee"]
     phone: Optional[str] = None
+    is_active: bool = True
 
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
     name: str
-    role: Literal["manager", "employee"] = "employee"
+    role: Literal["owner", "manager", "employee"] = "employee"
     phone: Optional[str] = None
+    is_active: Optional[bool] = True
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    role: Optional[Literal["owner", "manager", "employee"]] = None
+    phone: Optional[str] = None
+    is_active: Optional[bool] = None
+    password: Optional[str] = None
 
 class Customer(BaseModel):
     id: str = Field(default_factory=new_id)
@@ -210,6 +233,8 @@ class Invoice(DocBase):
     vat_amount: float = 0
     total: float = 0
     status: str = "unpaid"
+    source_quotation_id: Optional[str] = None
+    source_quotation_number: Optional[str] = None
     created_by: str = ""
     created_at: str = Field(default_factory=now_iso)
 
@@ -222,6 +247,7 @@ class Receipt(BaseModel):
     payment_method: str = "Cash"
     reference: Optional[str] = ""
     against_invoice: Optional[str] = ""
+    source_invoice_id: Optional[str] = None
     notes: Optional[str] = ""
     received_by: Optional[str] = ""
     created_by: str = ""
@@ -314,6 +340,10 @@ class Expense(BaseModel):
     created_by: str = ""
     created_by_name: str = ""
     status: str = "pending"  # pending, approved, rejected
+    remarks: Optional[str] = ""
+    reviewed_by: Optional[str] = ""
+    reviewed_by_name: Optional[str] = ""
+    reviewed_at: Optional[str] = None
     created_at: str = Field(default_factory=now_iso)
 
 class ExpenseCreate(BaseModel):
@@ -322,6 +352,22 @@ class ExpenseCreate(BaseModel):
     amount: float
     date: Optional[str] = None
     bill_file: Optional[dict] = None
+
+class ExpenseReview(BaseModel):
+    status: Literal["approved", "rejected", "pending"]
+    remarks: Optional[str] = ""
+
+class Notification(BaseModel):
+    id: str = Field(default_factory=new_id)
+    user_id: str  # recipient
+    title: str
+    body: str = ""
+    kind: str = "info"  # info, success, warning, error, event
+    category: str = "general"  # quotation, invoice, receipt, work, expense, service_report, user, material_request
+    entity_id: Optional[str] = None
+    entity_type: Optional[str] = None
+    read: bool = False
+    created_at: str = Field(default_factory=now_iso)
 
 class WorkAllocation(BaseModel):
     id: str = Field(default_factory=new_id)
@@ -382,6 +428,8 @@ async def login(body: LoginBody):
     user = await db.users.find_one({"email": body.email.lower()})
     if not user or not verify_pw(body.password, user["password"]):
         raise HTTPException(401, "Invalid email or password")
+    if user.get("is_active") is False:
+        raise HTTPException(403, "Account is deactivated. Contact your manager.")
     token = make_token(user)
     user.pop("password", None)
     user.pop("_id", None)
@@ -392,7 +440,7 @@ async def me(user: dict = Depends(current_user)):
     return user
 
 @api.post("/auth/register", dependencies=[Depends(require_manager)])
-async def register(body: UserCreate):
+async def register(body: UserCreate, actor: dict = Depends(current_user)):
     existing = await db.users.find_one({"email": body.email.lower()})
     if existing:
         raise HTTPException(400, "Email already registered")
@@ -403,22 +451,75 @@ async def register(body: UserCreate):
         "name": body.name,
         "role": body.role,
         "phone": body.phone or "",
+        "is_active": body.is_active if body.is_active is not None else True,
         "created_at": now_iso(),
     }
     await db.users.insert_one(doc)
+    await notify_managers(f"New user created: {body.name}", f"{body.email} ({body.role})", "info", "user", doc["id"], "user", exclude_user_id=actor["id"])
+    await notify(doc["id"], "Welcome to Smart Eye Hub", f"Your account has been created with role: {body.role}", "success", "user", doc["id"], "user")
     doc.pop("password", None)
     doc.pop("_id", None)
     return doc
 
 @api.get("/users")
 async def list_users(user: dict = Depends(current_user)):
-    users = await db.users.find({}, {"_id": 0, "password": 0}).to_list(500)
+    users = await db.users.find({}, {"_id": 0, "password": 0}).sort("created_at", -1).to_list(500)
     return users
 
 @api.get("/users/employees")
 async def list_employees(user: dict = Depends(current_user)):
-    users = await db.users.find({"role": "employee"}, {"_id": 0, "password": 0}).to_list(500)
+    users = await db.users.find({"role": "employee", "is_active": {"$ne": False}}, {"_id": 0, "password": 0}).to_list(500)
     return users
+
+@api.get("/users/{uid}")
+async def get_user(uid: str, user: dict = Depends(current_user)):
+    u = await db.users.find_one({"id": uid}, {"_id": 0, "password": 0})
+    if not u:
+        raise HTTPException(404, "Not found")
+    return u
+
+@api.put("/users/{uid}", dependencies=[Depends(require_manager)])
+async def update_user(uid: str, body: UserUpdate, actor: dict = Depends(current_user)):
+    u = await db.users.find_one({"id": uid})
+    if not u:
+        raise HTTPException(404, "Not found")
+    update = {}
+    if body.name is not None:
+        update["name"] = body.name
+    if body.role is not None:
+        update["role"] = body.role
+    if body.phone is not None:
+        update["phone"] = body.phone
+    if body.is_active is not None:
+        update["is_active"] = body.is_active
+    if body.password:
+        update["password"] = hash_pw(body.password)
+    if update:
+        await db.users.update_one({"id": uid}, {"$set": update})
+    if body.role and body.role != u.get("role"):
+        await notify(uid, "Role changed", f"Your role is now: {body.role}", "warning", "user", uid, "user")
+    if body.is_active is False and u.get("is_active") is not False:
+        await notify(uid, "Account deactivated", "Your account has been deactivated. Contact your manager.", "warning", "user", uid, "user")
+    if body.is_active is True and u.get("is_active") is False:
+        await notify(uid, "Account reactivated", "Your account has been reactivated.", "success", "user", uid, "user")
+    return clean(await db.users.find_one({"id": uid}, {"_id": 0, "password": 0}))
+
+@api.patch("/users/{uid}/active", dependencies=[Depends(require_manager)])
+async def toggle_active(uid: str):
+    u = await db.users.find_one({"id": uid})
+    if not u:
+        raise HTTPException(404, "Not found")
+    new_state = not bool(u.get("is_active", True))
+    await db.users.update_one({"id": uid}, {"$set": {"is_active": new_state}})
+    await notify(uid, "Account " + ("reactivated" if new_state else "deactivated"), "Your account access was updated by a manager.", "warning", "user", uid, "user")
+    return clean(await db.users.find_one({"id": uid}, {"_id": 0, "password": 0}))
+
+@api.delete("/users/{uid}", dependencies=[Depends(require_manager)])
+async def delete_user(uid: str, actor: dict = Depends(current_user)):
+    if uid == actor["id"]:
+        raise HTTPException(400, "Cannot delete yourself")
+    await db.users.delete_one({"id": uid})
+    return {"ok": True}
 
 # ---------------- Customers ----------------
 @api.get("/customers")
@@ -510,7 +611,36 @@ async def create_quotation(body: DocBase, user: dict = Depends(current_user)):
         **totals,
     ).dict()
     await db.quotations.insert_one(q.copy())
+    await notify_managers(f"New Quotation: {q['doc_number']}", f"For {q['customer_name']} — AED {q['total']:,.2f}", "info", "quotation", q["id"], "quotation", exclude_user_id=user["id"])
     return clean(q)
+
+@api.post("/quotations/{qid}/convert-to-invoice", dependencies=[Depends(require_manager)])
+async def convert_quotation_to_invoice(qid: str, user: dict = Depends(current_user)):
+    q = await db.quotations.find_one({"id": qid}, {"_id": 0})
+    if not q:
+        raise HTTPException(404, "Quotation not found")
+    inv = Invoice(
+        customer_id=q.get("customer_id"),
+        customer_name=q["customer_name"],
+        customer_address=q.get("customer_address", ""),
+        customer_phone=q.get("customer_phone", ""),
+        subject=q.get("subject", ""),
+        items=[LineItem(**i) for i in q.get("items", [])],
+        vat_percent=q.get("vat_percent", 5),
+        discount=q.get("discount", 0),
+        notes=q.get("notes", ""),
+        subtotal=q.get("subtotal", 0),
+        vat_amount=q.get("vat_amount", 0),
+        total=q.get("total", 0),
+        doc_number=await next_doc_number("INV"),
+        source_quotation_id=q["id"],
+        source_quotation_number=q.get("doc_number"),
+        created_by=user["id"],
+    ).dict()
+    await db.invoices.insert_one(inv.copy())
+    await db.quotations.update_one({"id": qid}, {"$set": {"status": "invoiced"}})
+    await notify_managers(f"Quotation converted → Invoice {inv['doc_number']}", f"From {q.get('doc_number')} for {inv['customer_name']}", "success", "invoice", inv["id"], "invoice", exclude_user_id=user["id"])
+    return clean(inv)
 
 @api.get("/quotations/{qid}")
 async def get_quotation(qid: str, user: dict = Depends(current_user)):
@@ -543,7 +673,30 @@ async def create_invoice(body: DocBase, user: dict = Depends(current_user)):
         **totals,
     ).dict()
     await db.invoices.insert_one(inv.copy())
+    await notify_managers(f"New Invoice: {inv['doc_number']}", f"For {inv['customer_name']} — AED {inv['total']:,.2f}", "info", "invoice", inv["id"], "invoice", exclude_user_id=user["id"])
     return clean(inv)
+
+@api.post("/invoices/{iid}/convert-to-receipt", dependencies=[Depends(require_manager)])
+async def convert_invoice_to_receipt(iid: str, user: dict = Depends(current_user)):
+    inv = await db.invoices.find_one({"id": iid}, {"_id": 0})
+    if not inv:
+        raise HTTPException(404, "Invoice not found")
+    r = Receipt(
+        doc_number=await next_doc_number("RCV"),
+        customer_id=inv.get("customer_id"),
+        customer_name=inv["customer_name"],
+        amount=float(inv.get("total", 0)),
+        payment_method="Cash",
+        against_invoice=inv.get("doc_number"),
+        source_invoice_id=inv["id"],
+        notes=f"Payment against invoice {inv.get('doc_number')}",
+        received_by=user["name"],
+        created_by=user["id"],
+    ).dict()
+    await db.receipts.insert_one(r.copy())
+    await db.invoices.update_one({"id": iid}, {"$set": {"status": "paid"}})
+    await notify_managers(f"Invoice paid → Receipt {r['doc_number']}", f"For {r['customer_name']} — AED {r['amount']:,.2f}", "success", "receipt", r["id"], "receipt", exclude_user_id=user["id"])
+    return clean(r)
 
 @api.get("/invoices/{iid}")
 async def get_invoice(iid: str, user: dict = Depends(current_user)):
@@ -573,6 +726,7 @@ async def create_receipt(body: ReceiptCreate, user: dict = Depends(current_user)
         created_by=user["id"],
     ).dict()
     await db.receipts.insert_one(r.copy())
+    await notify_managers(f"New Receipt: {r['doc_number']}", f"From {r['customer_name']} — AED {r['amount']:,.2f}", "info", "receipt", r["id"], "receipt", exclude_user_id=user["id"])
     return clean(r)
 
 @api.get("/receipts/{rid}")
@@ -608,6 +762,7 @@ async def create_service_report(body: ServiceReportCreate, user: dict = Depends(
     await db.service_reports.insert_one(sr.copy())
     if sr.get("work_id"):
         await db.works.update_one({"id": sr["work_id"]}, {"$set": {"status": "completed", "updated_at": now_iso()}})
+    await notify_managers(f"Service Report submitted: {sr['doc_number']}", f"By {user['name']} for {sr['customer_name']}", "success", "service_report", sr["id"], "service_report", exclude_user_id=user["id"])
     return clean(sr)
 
 @api.get("/service-reports/{sid}")
@@ -642,6 +797,7 @@ async def create_work(body: WorkAllocationCreate, user: dict = Depends(current_u
         created_by=user["id"],
     ).dict()
     await db.works.insert_one(w.copy())
+    await notify(body.assigned_to, f"New work assigned: {w['title']}", f"Customer: {w['customer_name']} · Priority: {w['priority']}", "info", "work", w["id"], "work")
     return clean(w)
 
 @api.get("/works/{wid}")
@@ -656,9 +812,13 @@ async def update_work_status(wid: str, body: WorkStatusUpdate, user: dict = Depe
     w = await db.works.find_one({"id": wid}, {"_id": 0})
     if not w:
         raise HTTPException(404, "Not found")
-    if user["role"] != "manager" and w["assigned_to"] != user["id"]:
+    if user["role"] not in ("manager", "owner") and w["assigned_to"] != user["id"]:
         raise HTTPException(403, "Not permitted")
     await db.works.update_one({"id": wid}, {"$set": {"status": body.status, "updated_at": now_iso()}})
+    if body.status == "completed":
+        await notify_managers(f"Work completed: {w['title']}", f"By {w['assigned_to_name']} for {w['customer_name']}", "success", "work", w["id"], "work", exclude_user_id=user["id"])
+    elif body.status == "in_progress":
+        await notify_managers(f"Work started: {w['title']}", f"By {w['assigned_to_name']}", "info", "work", w["id"], "work", exclude_user_id=user["id"])
     return clean(await db.works.find_one({"id": wid}, {"_id": 0}))
 
 # ---------------- Expenses ----------------
@@ -679,6 +839,7 @@ async def create_expense(body: ExpenseCreate, user: dict = Depends(current_user)
     if not e.get("date"):
         e["date"] = now_iso()
     await db.expenses.insert_one(e.copy())
+    await notify_managers(f"New expense request: AED {e['amount']:,.2f}", f"{e['category']} — by {user['name']}", "warning", "expense", e["id"], "expense", exclude_user_id=user["id"])
     resp = {k: v for k, v in e.items() if k != "bill_file"}
     return clean(resp)
 
@@ -690,8 +851,24 @@ async def get_expense(eid: str, user: dict = Depends(current_user)):
     return e
 
 @api.patch("/expenses/{eid}/status", dependencies=[Depends(require_manager)])
-async def update_expense_status(eid: str, body: WorkStatusUpdate):
-    await db.expenses.update_one({"id": eid}, {"$set": {"status": body.status}})
+async def update_expense_status(eid: str, body: ExpenseReview, actor: dict = Depends(current_user)):
+    e = await db.expenses.find_one({"id": eid}, {"_id": 0})
+    if not e:
+        raise HTTPException(404, "Not found")
+    await db.expenses.update_one({"id": eid}, {"$set": {
+        "status": body.status,
+        "remarks": body.remarks or "",
+        "reviewed_by": actor["id"],
+        "reviewed_by_name": actor["name"],
+        "reviewed_at": now_iso(),
+    }})
+    creator = e.get("created_by")
+    if creator and creator != actor["id"]:
+        kind = "success" if body.status == "approved" else ("error" if body.status == "rejected" else "info")
+        msg = f"Your expense of AED {e.get('amount', 0):,.2f} was {body.status}."
+        if body.remarks:
+            msg += f" Note: {body.remarks}"
+        await notify(creator, f"Expense {body.status}", msg, kind, "expense", eid, "expense")
     return clean(await db.expenses.find_one({"id": eid}, {"_id": 0, "bill_file": 0}))
 
 # ---------------- Material Requests ----------------
@@ -708,12 +885,44 @@ async def create_mr(body: MaterialRequestCreate, user: dict = Depends(current_us
         requested_by_name=user["name"],
     ).dict()
     await db.material_requests.insert_one(m.copy())
+    await notify_managers(f"New material request: {m['item_name']}", f"Qty {m['quantity']} {m.get('unit') or ''} — by {user['name']}", "warning", "material_request", m["id"], "material_request", exclude_user_id=user["id"])
     return clean(m)
 
 @api.patch("/material-requests/{mid}/status", dependencies=[Depends(require_manager)])
-async def update_mr_status(mid: str, body: MaterialRequestStatusUpdate):
+async def update_mr_status(mid: str, body: MaterialRequestStatusUpdate, actor: dict = Depends(current_user)):
+    m = await db.material_requests.find_one({"id": mid}, {"_id": 0})
+    if not m:
+        raise HTTPException(404, "Not found")
     await db.material_requests.update_one({"id": mid}, {"$set": {"status": body.status}})
+    if m.get("requested_by") and m["requested_by"] != actor["id"]:
+        kind = "success" if body.status in ("approved", "fulfilled") else ("error" if body.status == "rejected" else "info")
+        await notify(m["requested_by"], f"Material request {body.status}", f"{m['item_name']} (qty {m['quantity']})", kind, "material_request", mid, "material_request")
     return clean(await db.material_requests.find_one({"id": mid}, {"_id": 0}))
+
+# ---------------- Notifications ----------------
+@api.get("/notifications")
+async def list_notifications(user: dict = Depends(current_user), limit: int = 100):
+    return await db.notifications.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(limit)
+
+@api.get("/notifications/unread-count")
+async def unread_count(user: dict = Depends(current_user)):
+    c = await db.notifications.count_documents({"user_id": user["id"], "read": False})
+    return {"count": c}
+
+@api.patch("/notifications/{nid}/read")
+async def mark_read(nid: str, user: dict = Depends(current_user)):
+    await db.notifications.update_one({"id": nid, "user_id": user["id"]}, {"$set": {"read": True}})
+    return {"ok": True}
+
+@api.post("/notifications/read-all")
+async def mark_all_read(user: dict = Depends(current_user)):
+    await db.notifications.update_many({"user_id": user["id"], "read": False}, {"$set": {"read": True}})
+    return {"ok": True}
+
+@api.delete("/notifications/{nid}")
+async def delete_notification(nid: str, user: dict = Depends(current_user)):
+    await db.notifications.delete_one({"id": nid, "user_id": user["id"]})
+    return {"ok": True}
 
 # ---------------- Dashboard ----------------
 @api.get("/dashboard/summary")
@@ -751,6 +960,8 @@ async def dashboard_summary(user: dict = Depends(current_user)):
 
 # ---------------- Seed ----------------
 async def seed():
+    # migrate: ensure is_active on all existing users
+    await db.users.update_many({"is_active": {"$exists": False}}, {"$set": {"is_active": True}})
     if await db.users.count_documents({}) == 0:
         await db.users.insert_many([
             {
@@ -815,74 +1026,34 @@ def _styles():
         "footer": ParagraphStyle("footer", parent=ss["BodyText"], fontSize=7, textColor=colors.white, alignment=1),
     }
 
-def _header(styles):
-    # Company header block
-    brand_para = Paragraph('<font color="#1B3A5F">Smart</font> <font color="#C8102E">Eye</font>', styles["brand"])
-    company_ar = Paragraph("سمارت آي تكنيكال سيرفسز ش.م.ح - ذ.م.م", styles["body"])
-    company_en = Paragraph("<b>SMART EYE TECHNICAL SERVICES</b>", styles["body"])
-    header_tbl = Table(
-        [[brand_para, company_ar], [company_en, ""]],
-        colWidths=[95 * mm, 95 * mm],
-    )
-    header_tbl.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]))
-    return header_tbl
-
-def _footer_flow(styles):
-    services = [
-        "Home Automation",
-        "Security & Surveillance",
-        "IT & Network Solutions",
-        "Access & Intercom Sys",
-        "Audio Visual & Smart System",
-    ]
-    tbl = Table([services], colWidths=[38 * mm] * 5)
-    tbl.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), BRAND_NAVY),
-        ("TEXTCOLOR", (0, 0), (-1, -1), colors.white),
-        ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 8),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-    ]))
-    contact_row = Table(
-        [[
-            Paragraph(f'<font color="white">☎ {COMPANY["phone1"]}   ✉ {COMPANY["email"]}</font>', styles["footer"]),
-            Paragraph(f'<font color="white">☎ {COMPANY["phone2"]}   📍 {COMPANY["location"]}   🌐 {COMPANY["website"]}</font>', styles["footer"]),
-        ]],
-        colWidths=[95 * mm, 95 * mm],
-    )
-    contact_row.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), BRAND_NAVY),
-        ("TEXTCOLOR", (0, 0), (-1, -1), colors.white),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]))
-    return [tbl, contact_row]
+def _draw_letterhead(canv, doc):
+    """Draw company letterhead (header + footer graphics) as full-page background on every page."""
+    canv.saveState()
+    try:
+        if LETTERHEAD.exists():
+            page_w, page_h = A4
+            canv.drawImage(str(LETTERHEAD), 0, 0, width=page_w, height=page_h, preserveAspectRatio=True, mask="auto")
+    finally:
+        canv.restoreState()
 
 def _make_doc(buf):
+    # Letterhead reserves ~35mm top and ~40mm bottom. Content sits in the middle.
     return SimpleDocTemplate(
         buf, pagesize=A4,
-        leftMargin=12 * mm, rightMargin=12 * mm,
-        topMargin=12 * mm, bottomMargin=12 * mm,
+        leftMargin=15 * mm, rightMargin=15 * mm,
+        topMargin=38 * mm, bottomMargin=42 * mm,
     )
+
+def _build_pdf(story) -> bytes:
+    buf = io.BytesIO()
+    doc = _make_doc(buf)
+    doc.build(story, onFirstPage=_draw_letterhead, onLaterPages=_draw_letterhead)
+    return buf.getvalue()
 
 def build_doc_pdf(title: str, d: dict) -> bytes:
     """Quotation or Invoice"""
     styles = _styles()
-    buf = io.BytesIO()
-    doc = _make_doc(buf)
     story = []
-    story.append(_header(styles))
-    story.append(Spacer(1, 4))
-    story.append(Table([[""]], colWidths=[190 * mm], style=[("LINEBELOW", (0, 0), (-1, -1), 1.5, BRAND_NAVY)]))
-    story.append(Spacer(1, 6))
-
     # Title
     story.append(Paragraph(f"<b>{title}</b>", styles["h1"]))
     story.append(Spacer(1, 4))
@@ -983,22 +1154,11 @@ def build_doc_pdf(title: str, d: dict) -> bytes:
     story.append(Paragraph("Authorised Signatory", styles["bodyB"]))
     story.append(Paragraph("Smart Eye Technical Services", styles["small"]))
 
-    story.append(Spacer(1, 12))
-    for f in _footer_flow(styles):
-        story.append(f)
-
-    doc.build(story)
-    return buf.getvalue()
+    return _build_pdf(story)
 
 def build_receipt_pdf(r: dict) -> bytes:
     styles = _styles()
-    buf = io.BytesIO()
-    doc = _make_doc(buf)
     story = []
-    story.append(_header(styles))
-    story.append(Spacer(1, 4))
-    story.append(Table([[""]], colWidths=[190 * mm], style=[("LINEBELOW", (0, 0), (-1, -1), 1.5, BRAND_NAVY)]))
-    story.append(Spacer(1, 8))
     story.append(Paragraph("<b>RECEIPT VOUCHER</b>", styles["h1"]))
     story.append(Spacer(1, 8))
 
@@ -1044,22 +1204,11 @@ def build_receipt_pdf(r: dict) -> bytes:
     sig.setStyle(TableStyle([("TOPPADDING", (0, 0), (-1, -1), 12)]))
     story.append(sig)
 
-    story.append(Spacer(1, 20))
-    for f in _footer_flow(styles):
-        story.append(f)
-
-    doc.build(story)
-    return buf.getvalue()
+    return _build_pdf(story)
 
 def build_service_report_pdf(sr: dict) -> bytes:
     styles = _styles()
-    buf = io.BytesIO()
-    doc = _make_doc(buf)
     story = []
-    story.append(_header(styles))
-    story.append(Spacer(1, 4))
-    story.append(Table([[""]], colWidths=[190 * mm], style=[("LINEBELOW", (0, 0), (-1, -1), 1.5, BRAND_NAVY)]))
-    story.append(Spacer(1, 8))
     story.append(Paragraph("<b>SERVICE REPORT</b>", styles["h1"]))
     story.append(Spacer(1, 6))
     story.append(Paragraph(f"<b>Sl. No:</b> {sr.get('doc_number','')}    <b>Date:</b> {(sr.get('created_at') or '')[:10]}", styles["body"]))
@@ -1194,12 +1343,7 @@ def build_service_report_pdf(sr: dict) -> bytes:
     sig.setStyle(TableStyle([("TOPPADDING", (0, 0), (-1, -1), 8)]))
     story.append(sig)
 
-    story.append(Spacer(1, 12))
-    for f in _footer_flow(styles):
-        story.append(f)
-
-    doc.build(story)
-    return buf.getvalue()
+    return _build_pdf(story)
 
 # ---------------- Wire up ----------------
 app.include_router(api)

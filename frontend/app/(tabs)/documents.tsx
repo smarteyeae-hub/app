@@ -36,7 +36,7 @@ export default function Documents() {
 
   useEffect(() => { load(tab); }, [tab, load]);
 
-  const canCreate = user?.role === "manager" || tab === "service_report";
+  const canCreate = user?.role === "manager" || user?.role === "owner" || tab === "service_report";
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }} edges={["top"]}>

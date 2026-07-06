@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 3 comprehensive testing PASSED. Backend: 44/44 pytest tests green (22 new iteration-3 tests + 22 iteration-1 regression). Verified notifications CRUD (list/unread-count/mark-single/mark-all/delete + auto-notify on doc creation), quotation→invoice→receipt conversion chain with all field mappings (source_quotation_id/number, source_invoice_id, against_invoice, amount==total, status transitions to invoiced/paid), user management CRUD with is_active gate on login (deactivated login returns 403 with 'deactivated'), welcome + role-change notifications, expense review with remarks and category-aware notifications (rejected/approved) sent to employee, letterhead PDFs (all four types >400KB, %PDF header valid), and owner role privileges matching manager (works/quotations/expense approval). Frontend E2E on Expo web mobile viewport (390x844): 13/13 critical flows passed — login page redesign with all 5 testIDs + login-error, manager login + notif-bell + notif-badge, navigation to /notifications with notif-mark-all, User Management (create/toggle-deactivate visible for manager only), Documents tab → quotation detail with convert-to-invoice-btn + PDF download (SE-QT-2026-021.pdf downloaded, no base64/undefined errors), full conversion chain quotation→invoice→receipt with link-source-quotation and link-source-invoice back-links, employee correctly does NOT see more-users. React-Native deprecation warnings (resizeMode/pointerEvents/shadow*/useNativeDriver) still present from prior iterations — non-blocking, already reported. No new blocking issues.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "Image", "issue": "Deprecation warning: 'Image: style.resizeMode is deprecated. Please use props.resizeMode.' Reference: /app/frontend/app/(tabs)/more.tsx:58 (already reported in iteration 1-2)"},
+      {"component": "Pressable/View", "issue": "Deprecation warning: 'props.pointerEvents is deprecated. Use style.pointerEvents' (already reported)"},
+      {"component": "StyleSheet shadow", "issue": "Deprecation warning: '\"shadow*\" style props are deprecated. Use \"boxShadow\".' (already reported)"},
+      {"component": "Animated (login screen)", "issue": "Warning: 'Animated: useNativeDriver is not supported because the native animated module is missing. Falling back to JS-based animation.' Reference: /app/frontend/app/login.tsx (logo animation). On web preview this is expected; on native builds it should work. Non-blocking."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration3_features.py",
+    "/app/backend/tests/test_smart_eye_hub.py",
+    "/app/test_reports/pytest/iteration3_results.xml"
+  ],
+  "action_items": [
+    "No blocking action items. Iteration 3 feature drop is validated end-to-end.",
+    "Optional cleanup: address the accumulated RN deprecation warnings (resizeMode -> props.resizeMode on Image in (tabs)/more.tsx:58; shadow* -> boxShadow; props.pointerEvents -> style.pointerEvents). Non-blocking but will surface in every future test run."
+  ],
+  "critical_code_review_comments": [
+    "server.py `_draw_letterhead` correctly registered on both onFirstPage and onLaterPages — every page of multi-page PDFs will carry the letterhead (line 1050).",
+    "notify_managers uses `role: {$in: ['manager','owner']}, is_active: {$ne: False}` — correctly excludes deactivated managers/owners (server.py:113).",
+    "register endpoint uses `exclude_user_id=actor['id']` so acting manager isn't self-notified — good. Welcome notif is sent to new user separately (server.py:458-459).",
+    "convert-to-invoice / convert-to-receipt endpoints correctly propagate source_* linkage and flip source doc status to invoiced/paid (server.py:617,679).",
+    "Login endpoint returns 403 with 'deactivated' message when is_active is False (server.py:431).",
+    "server.py is 1357 lines — approaching the 700-line ceiling from code review guidelines. Consider splitting into routers (auth, docs, expenses, notifications) in a follow-up refactor.",
+    "Frontend more.tsx correctly gates 'users' item behind `isMgr = role==='manager' || role==='owner'` (line 12,16) — verified in E2E.",
+    "doc-detail.tsx correctly conditionally renders convert buttons and source-link buttons based on doc.source_* fields."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration3_features.py (created - 22 new tests covering iteration 3 features)"
+  ],
+  "success_rate": {"backend": "100% (44/44)", "frontend": "100% (13/13 critical E2E flows)"},
+  "seed_data_creation": "Test-created data uses TEST_ prefix (customers, users, quotations, invoices, receipts, expenses). Test users are DELETEd in teardown where possible; a few TEST_ documents remain in DB from create-verify tests (harmless, distinguishable by prefix).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Endpoints proven working: GET/PATCH/POST/DELETE /api/notifications (+ /unread-count, /read-all, /{id}/read); POST /api/quotations/{id}/convert-to-invoice; POST /api/invoices/{id}/convert-to-receipt; POST /api/auth/register (manager-only); PUT/DELETE /api/users/{id}; PATCH /api/users/{id}/active; PATCH /api/expenses/{id}/status body {status, remarks}. Login as deactivated user returns 403 with 'deactivated' substring. Owner role has manager privileges. All PDFs embed letterhead (>400KB). Frontend testIDs verified live: login-email-input, login-password-input, login-submit-button, fill-manager-btn, fill-employee-btn, login-error, notif-bell-btn, notif-badge-count, notif-mark-all, notif-<id>, more-users, users-fab, uf-name, uf-email, uf-password, uf-phone, uf-role-<role>, uf-save, user-edit-<id>, user-toggle-<id>, user-delete-<id>, exp-approve-<id>, exp-reject-<id>, review-remarks, review-submit-btn, convert-to-invoice-btn, convert-to-receipt-btn, link-source-quotation, link-source-invoice, pdf-download-btn, docs-tab-<type>, doc-<uuid>, back-btn. Documents tab is bottom-tab (tap by text 'Documents' at ~y=825 on 390-wide viewport). PDF download on web uses <a download> data-url — confirmed working (SE-QT-2026-021.pdf).",
+  "rca_of_issue": "N/A - no bugs found. The only pytest failure during authoring (test_register_and_notif) was a test-side false negative: acting manager is intentionally excluded from the 'new user created' broadcast via exclude_user_id=actor['id']. The test was fixed to spin up a second owner-role user and assert THAT owner receives the notification when a subsequent registration is triggered. All 44 backend tests now green."
+}

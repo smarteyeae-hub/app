@@ -43,7 +43,7 @@ export default function WorkDetail() {
           {w.description ? <><View style={{ height: 8 }} /><Text style={{ color: theme.textMuted, fontSize: 11, fontWeight: "700" }}>DESCRIPTION</Text><Text style={{ color: theme.text, marginTop: 4 }}>{w.description}</Text></> : null}
         </Card>
 
-        {(user?.role === "manager" || w.assigned_to === user?.id) && w.status !== "completed" && (
+        {((user?.role === "manager" || user?.role === "owner") || w.assigned_to === user?.id) && w.status !== "completed" && (
           <View style={{ marginTop: spacing.lg, gap: 10 }}>
             {w.status === "pending" && <PrimaryButton title="Start Work" onPress={() => update("in_progress")} icon="play" testID="work-start-btn" />}
             {w.status !== "pending" && <PrimaryButton title="Mark Completed" onPress={() => update("completed")} icon="checkmark-circle" testID="work-done-btn" />}

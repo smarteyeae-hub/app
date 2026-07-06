@@ -61,8 +61,13 @@ export const api = {
   // inventory
   listInventory: () => apiFetch<any[]>("/inventory"),
   createInventory: (b: any) => apiFetch("/inventory", { method: "POST", body: JSON.stringify(b) }),
-  // employees
+  // users
+  listUsers: () => apiFetch<any[]>("/users"),
   listEmployees: () => apiFetch<any[]>("/users/employees"),
+  createUser: (b: any) => apiFetch("/auth/register", { method: "POST", body: JSON.stringify(b) }),
+  updateUser: (id: string, b: any) => apiFetch(`/users/${id}`, { method: "PUT", body: JSON.stringify(b) }),
+  toggleUserActive: (id: string) => apiFetch(`/users/${id}/active`, { method: "PATCH" }),
+  deleteUser: (id: string) => apiFetch(`/users/${id}`, { method: "DELETE" }),
   // works
   listWorks: () => apiFetch<any[]>("/works"),
   createWork: (b: any) => apiFetch("/works", { method: "POST", body: JSON.stringify(b) }),
@@ -71,9 +76,11 @@ export const api = {
   // docs
   listQuotations: () => apiFetch<any[]>("/quotations"),
   createQuotation: (b: any) => apiFetch("/quotations", { method: "POST", body: JSON.stringify(b) }),
+  quotationToInvoice: (id: string) => apiFetch<any>(`/quotations/${id}/convert-to-invoice`, { method: "POST" }),
   quotationPdf: (id: string) => apiFetch<{ filename: string; data: string }>(`/quotations/${id}/pdf`),
   listInvoices: () => apiFetch<any[]>("/invoices"),
   createInvoice: (b: any) => apiFetch("/invoices", { method: "POST", body: JSON.stringify(b) }),
+  invoiceToReceipt: (id: string) => apiFetch<any>(`/invoices/${id}/convert-to-receipt`, { method: "POST" }),
   invoicePdf: (id: string) => apiFetch<{ filename: string; data: string }>(`/invoices/${id}/pdf`),
   listReceipts: () => apiFetch<any[]>("/receipts"),
   createReceipt: (b: any) => apiFetch("/receipts", { method: "POST", body: JSON.stringify(b) }),
@@ -86,9 +93,16 @@ export const api = {
   createPurchase: (b: any) => apiFetch("/purchases", { method: "POST", body: JSON.stringify(b) }),
   listExpenses: () => apiFetch<any[]>("/expenses"),
   createExpense: (b: any) => apiFetch("/expenses", { method: "POST", body: JSON.stringify(b) }),
+  reviewExpense: (id: string, status: string, remarks: string) => apiFetch(`/expenses/${id}/status`, { method: "PATCH", body: JSON.stringify({ status, remarks }) }),
   listMaterialRequests: () => apiFetch<any[]>("/material-requests"),
   createMaterialRequest: (b: any) => apiFetch("/material-requests", { method: "POST", body: JSON.stringify(b) }),
   updateMRStatus: (id: string, status: string) => apiFetch(`/material-requests/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }),
+  // notifications
+  listNotifications: () => apiFetch<any[]>("/notifications"),
+  unreadCount: () => apiFetch<{ count: number }>("/notifications/unread-count"),
+  markRead: (id: string) => apiFetch(`/notifications/${id}/read`, { method: "PATCH" }),
+  markAllRead: () => apiFetch("/notifications/read-all", { method: "POST" }),
+  deleteNotification: (id: string) => apiFetch(`/notifications/${id}`, { method: "DELETE" }),
 };
 
 export const isWeb = Platform.OS === "web";

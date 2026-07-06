@@ -42,6 +42,8 @@ function AuthGate() {
       <Stack.Screen name="customer-create" options={{ presentation: "modal" }} />
       <Stack.Screen name="material-requests" />
       <Stack.Screen name="material-request-create" options={{ presentation: "modal" }} />
+      <Stack.Screen name="notifications" />
+      <Stack.Screen name="users" />
     </Stack>
   );
 }

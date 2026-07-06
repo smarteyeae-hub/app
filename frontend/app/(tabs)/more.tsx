@@ -9,9 +9,11 @@ import { theme, spacing, radius } from "@/src/theme";
 export default function More() {
   const { user, logout } = useAuth();
   const router = useRouter();
-  const isMgr = user?.role === "manager";
+  const isMgr = user?.role === "manager" || user?.role === "owner";
 
   const items: { key: string; icon: any; label: string; onPress: () => void; visible?: boolean }[] = [
+    { key: "notifications", icon: "notifications", label: "Notifications", onPress: () => router.push("/notifications"), visible: true },
+    { key: "users", icon: "people-circle", label: "User Management", onPress: () => router.push("/users"), visible: isMgr },
     { key: "inventory", icon: "cube", label: "Inventory", onPress: () => router.push("/inventory"), visible: true },
     { key: "purchases", icon: "cart", label: "Purchases", onPress: () => router.push("/purchases"), visible: isMgr },
     { key: "expenses", icon: "wallet", label: "Expenses", onPress: () => router.push("/expenses"), visible: true },
